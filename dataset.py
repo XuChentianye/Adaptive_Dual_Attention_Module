@@ -46,6 +46,19 @@ def augment(img, mask):
     return img, mask
 
 
+def augment2(img, mask):
+    # Transform lib is often used to process PIL image.
+    img = Image.fromarray(img)
+    mask = Image.fromarray(mask)
+    
+    img = transforms.Resize((384, 512), interpolation=InterpolationMode.BICUBIC)(img)
+    mask = transforms.Resize((384, 512), interpolation=InterpolationMode.BICUBIC)(mask)
+
+    img = np.array(img).transpose(1,0,2)
+    mask = np.array(mask).transpose(1,0,2)
+    return img, mask
+
+
 class ISICDataset_Seg(data.Dataset):
     def __init__(self, data_path, mask_path):
         self.images = [data_path + '/' + f for f in os.listdir(data_path) if f.endswith('.jpg')]
@@ -98,7 +111,58 @@ class ISICDataset_Seg(data.Dataset):
     def __len__(self):
         return self._len
 
+class ISICDataset_Seg_Val(data.Dataset):
+    def __init__(self, data_path, mask_path):
+        self.images = [data_path + '/' + f for f in os.listdir(data_path) if f.endswith('.jpg')]
+        self.images = sorted(self.images)
+        self.masks = [mask_path + '/' + f for f in os.listdir(mask_path) if f.endswith('.png')]
+        self.masks = sorted(self.masks)
+        self._len = len(self.images)
+        # check len
+        if(len(self.images)!=len(self.masks)):
+            print("Error! The length of images and masks don't match!")
+        self.img_transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize((0.5,0.5,0.5),(0.5,0.5,0.5))
+            ])
+        self.mask_transform = transforms.Compose([
+            transforms.ToTensor(),
+            ])
+        
+    def __getitem__(self, item):
+        image_pa = self.images[item]
+        mask_pa = self.masks[item]
+        
+        img = cv.imread(image_pa)
+        ma = cv.imread(mask_pa)
+        img, ma = augment2(img, ma)
+        
+        img1 = cv.cvtColor(img, cv.COLOR_BGR2RGB)
+        img2 = cv.cvtColor(img, cv.COLOR_BGR2HSV)
+        img3 = cv.cvtColor(img, cv.COLOR_BGR2LAB)
+        img1 = Image.fromarray(img1)
+        img2 = Image.fromarray(img2)
+        img3 = Image.fromarray(img3)
+        img1 = self.img_transform(img1)
+        img2 = self.img_transform(img2)
+        img3 = self.img_transform(img3)
+        img1 = np.array(img1)
+        img2 = np.array(img2)[1:3,:,:]  # drop the H channel
+        img3 = np.array(img3)
+        image = np.concatenate([img1, img2, img3], axis=0)
+        image = torch.from_numpy(image)
+        
+        ma = Image.fromarray(ma)
+        ma = self.mask_transform(ma)
 
+        ma = np.array(ma)
+        mask = torch.from_numpy(ma)[0:1,:,:]
+
+        return image, mask
+        
+    def __len__(self):
+        return self._len
+    
 label_dict = {'[0. 0.]': 2, '[1. 0.]': 0, '[0. 1.]': 1}
 class ISICDataset_Cla(data.Dataset):
     def __init__(self, data_path, label_path):
